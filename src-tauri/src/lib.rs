@@ -5,8 +5,26 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::SystemTime;
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{Manager, RunEvent, WindowEvent};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
+use tauri::{Manager, RunEvent, Theme, WindowEvent};
+
+const TRAY_ICON_LIGHT: &[u8] = include_bytes!("../icons/tray-light.png");
+const TRAY_ICON_DARK: &[u8] = include_bytes!("../icons/tray-dark.png");
+
+fn tray_icon_for(theme: Theme) -> Result<Image<'static>, tauri::Error> {
+    let bytes = if matches!(theme, Theme::Dark) {
+        TRAY_ICON_DARK
+    } else {
+        TRAY_ICON_LIGHT
+    };
+    Image::from_bytes(bytes)
+}
+
+fn apply_tray_theme(tray: &TrayIcon, theme: Theme) {
+    if let Ok(icon) = tray_icon_for(theme) {
+        let _ = tray.set_icon(Some(icon));
+    }
+}
 
 struct AppState {
     is_quitting: AtomicBool,
@@ -221,8 +239,8 @@ pub fn run() {
             read_app_config,
             write_app_config,
         ])
-        .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
+        .on_window_event(|window, event| match event {
+            WindowEvent::CloseRequested { api, .. } => {
                 let app = window.app_handle();
                 let state = app.state::<AppState>();
                 if !state.is_quitting.load(Ordering::Relaxed) {
@@ -230,6 +248,13 @@ pub fn run() {
                     let _ = window.hide();
                 }
             }
+            WindowEvent::ThemeChanged(theme) => {
+                let app = window.app_handle();
+                if let Some(tray) = app.tray_by_id("notd-tray") {
+                    apply_tray_theme(&tray, *theme);
+                }
+            }
+            _ => {}
         })
         .setup(|app| {
             // A right-click "Quit" entry is the only way to exit the app
@@ -238,10 +263,14 @@ pub fn run() {
             let quit_item = MenuItem::with_id(app, "quit", "Quit notd", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&quit_item])?;
 
-            let icon = Image::from_bytes(include_bytes!("../icons/tray.png"))?;
-            TrayIconBuilder::with_id("notd-tray")
-                .icon(icon)
-                .icon_as_template(true)
+            let initial_theme = app
+                .get_webview_window("main")
+                .and_then(|w| w.theme().ok())
+                .unwrap_or(Theme::Light);
+
+            let tray = TrayIconBuilder::with_id("notd-tray")
+                .icon(tray_icon_for(initial_theme)?)
+                .icon_as_template(false)
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| {
@@ -262,6 +291,11 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            // Theme swap is wired via WindowEvent::ThemeChanged on the
+            // builder-level handler above, which finds the tray by id.
+            let _ = tray;
+
             Ok(())
         })
         .build(tauri::generate_context!())

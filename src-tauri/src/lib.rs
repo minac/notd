@@ -1,8 +1,24 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::SystemTime;
-use tauri::Manager;
+use tauri::image::Image;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{Manager, RunEvent, WindowEvent};
+
+struct AppState {
+    is_quitting: AtomicBool,
+}
+
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone)]
 struct MdFileInfo {
@@ -131,7 +147,9 @@ fn read_meta(folder: String) -> Result<Option<String>, String> {
     if !path.exists() {
         return Ok(None);
     }
-    fs::read_to_string(&path).map(Some).map_err(|e| e.to_string())
+    fs::read_to_string(&path)
+        .map(Some)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -164,7 +182,9 @@ fn read_app_config(app: tauri::AppHandle) -> Result<Option<String>, String> {
     if !path.exists() {
         return Ok(None);
     }
-    fs::read_to_string(&path).map(Some).map_err(|e| e.to_string())
+    fs::read_to_string(&path)
+        .map(Some)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -178,7 +198,10 @@ fn write_app_config(app: tauri::AppHandle, json: String) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
+        .manage(AppState {
+            is_quitting: AtomicBool::new(false),
+        })
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
@@ -198,6 +221,61 @@ pub fn run() {
             read_app_config,
             write_app_config,
         ])
-        .run(tauri::generate_context!())
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let app = window.app_handle();
+                let state = app.state::<AppState>();
+                if !state.is_quitting.load(Ordering::Relaxed) {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
+        .setup(|app| {
+            // A right-click "Quit" entry is the only way to exit the app
+            // when the window is hidden, since Cmd+Q on a hidden window
+            // doesn't reach the menu bar.
+            let quit_item = MenuItem::with_id(app, "quit", "Quit notd", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&quit_item])?;
+
+            let icon = Image::from_bytes(include_bytes!("../icons/tray.png"))?;
+            TrayIconBuilder::with_id("notd-tray")
+                .icon(icon)
+                .icon_as_template(true)
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| {
+                    if event.id().as_ref() == "quit" {
+                        let state = app.state::<AppState>();
+                        state.is_quitting.store(true, Ordering::Relaxed);
+                        app.exit(0);
+                    }
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        show_main_window(tray.app_handle());
+                    }
+                })
+                .build(app)?;
+            Ok(())
+        })
+        .build(tauri::generate_context!())
         .expect("error while running tauri application");
+
+    app.run(|app_handle, event| match event {
+        RunEvent::ExitRequested { .. } => {
+            let state = app_handle.state::<AppState>();
+            state.is_quitting.store(true, Ordering::Relaxed);
+        }
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen { .. } => {
+            show_main_window(app_handle);
+        }
+        _ => {}
+    });
 }

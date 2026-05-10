@@ -12,7 +12,9 @@ export interface Meta {
   nextIndex: number;
 }
 
-export const EMPTY_META: Meta = { version: 1, notes: [], nextIndex: 0 };
+export const CURRENT_META_VERSION = 1;
+
+export const EMPTY_META: Meta = { version: CURRENT_META_VERSION, notes: [], nextIndex: 0 };
 
 export async function readMetaRaw(): Promise<string | null> {
   return invoke<string | null>('read_meta');
@@ -36,12 +38,28 @@ export async function rebuildMeta(): Promise<Meta> {
   const files = await listMarkdownFiles();
   files.sort((a, b) => a.mtime_ms - b.mtime_ms);
   const meta: Meta = {
-    version: 1,
+    version: CURRENT_META_VERSION,
     notes: files.map((f, i) => ({ filename: f.filename, createdIndex: i })),
     nextIndex: files.length
   };
   await writeMeta(meta);
   return meta;
+}
+
+// Called from loadMeta() between JSON.parse and isValidMeta. Receives anything
+// (parsed JSON of unknown shape) and returns a value that should then be passed
+// to isValidMeta. Must be a no-op for already-current-version metas.
+function migrate(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object') return raw;
+  const m = raw as Record<string, unknown>;
+  if (typeof m.version !== 'number') return raw;
+  let current = m;
+  // Future: when we bump schema, add transforms here.
+  // Example shape, leave commented as guidance:
+  // if (current.version === 1) {
+  //   current = { ...current, version: 2, /* new field */ };
+  // }
+  return current;
 }
 
 function isValidMeta(value: unknown): value is Meta {
@@ -79,8 +97,14 @@ function tryParseMeta(raw: string | null): Meta | null {
   } catch {
     return null;
   }
-  if (!isValidMeta(parsed)) return null;
-  return parsed;
+  const migrated = migrate(parsed);
+  if (!isValidMeta(migrated)) return null;
+  // Forward-compat guard: a meta written by a newer build of the app could pass
+  // structural validation but carry a version we don't understand. Treat as
+  // invalid so loadMeta falls through to bak/rebuild rather than silently
+  // writing data the newer app expects.
+  if (migrated.version !== CURRENT_META_VERSION) return null;
+  return migrated;
 }
 
 export async function loadMeta(): Promise<Meta> {
@@ -119,7 +143,7 @@ async function reconcile(meta: Meta): Promise<Meta> {
     nextIndex++;
   }
 
-  const reconciled: Meta = { version: 1, notes, nextIndex };
+  const reconciled: Meta = { version: CURRENT_META_VERSION, notes, nextIndex };
   const changed =
     notes.length !== meta.notes.length ||
     nextIndex !== meta.nextIndex ||
@@ -141,7 +165,7 @@ export function addNoteToMeta(
   const createdIndex = meta.nextIndex;
   return {
     meta: {
-      version: 1,
+      version: CURRENT_META_VERSION,
       notes: [...meta.notes, { filename, createdIndex }],
       nextIndex: meta.nextIndex + 1
     },
@@ -151,7 +175,7 @@ export function addNoteToMeta(
 
 export function removeNoteFromMeta(meta: Meta, filename: string): Meta {
   return {
-    version: 1,
+    version: CURRENT_META_VERSION,
     notes: meta.notes.filter((n) => n.filename !== filename),
     nextIndex: meta.nextIndex
   };

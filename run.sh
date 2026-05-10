@@ -19,6 +19,7 @@ Commands:
   build    Production build, then copy ${APP_NAME}.app into ${APPLICATIONS}.
   cli      Build and install notd-cli to \$CLI_PREFIX/bin (default ~/.local).
   doctor   Run svelte-check and cargo check.
+  audit    Run cargo audit (src-tauri, cli) and npm audit for known CVEs.
   clean    Remove build artifacts (build/, .svelte-kit/, src-tauri/target, cli/target).
   help     Show this message.
 EOF
@@ -72,6 +73,17 @@ cmd_cli() {
   esac
 }
 
+cmd_audit() {
+  echo "→ cargo audit (src-tauri)"
+  ( cd src-tauri && cargo audit )
+  echo
+  echo "→ cargo audit (cli)"
+  ( cd cli && cargo audit )
+  echo
+  echo "→ npm audit (frontend)"
+  npm audit --omit=dev || true
+}
+
 cmd_clean() {
   rm -rf build .svelte-kit
   ( cd src-tauri && cargo clean )
@@ -87,6 +99,7 @@ main() {
     build)  cmd_build "$@" ;;
     cli)    cmd_cli "$@" ;;
     doctor) cmd_doctor "$@" ;;
+    audit)  cmd_audit "$@" ;;
     clean)  cmd_clean "$@" ;;
     help|-h|--help) usage ;;
     *)      echo "Unknown command: $sub" >&2; usage; exit 1 ;;

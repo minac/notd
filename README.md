@@ -30,6 +30,21 @@ Notes are plain Markdown files in your chosen folder, one per note, named `YYYY-
 
 If `.notd-meta.json` is missing or invalid, notd rebuilds it from the file modification times the next time it loads the folder.
 
+## CLI
+
+A small Rust CLI lives in `cli/` for scripting and Claude Code workflows. Run via the `./notd` wrapper at the repo root — it builds on first use and execs the binary directly afterwards.
+
+```sh
+./notd help              # commands
+./notd ls                # list notes, oldest → newest
+./notd show last         # print the most recent note
+./notd new "quick idea"  # create a note (or pipe stdin)
+./notd append 7 "more"   # append to note #7
+./notd grep "pattern"    # ripgrep across notes
+```
+
+The CLI reads the same `config.json` the app writes, so it operates on whichever folder you've chosen in the app.
+
 ## License
 
 MIT

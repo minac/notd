@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Wrapper for the Rust notd CLI in ./cli/.
+# Fast path: exec the release binary directly when it's newer than the source.
+# Slow path: rebuild, then exec.
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BIN="$ROOT/cli/target/release/notd"
+SRC="$ROOT/cli/src/main.rs"
+TOML="$ROOT/cli/Cargo.toml"
+
+if [[ -x "$BIN" && "$BIN" -nt "$SRC" && "$BIN" -nt "$TOML" ]]; then
+  exec "$BIN" "$@"
+fi
+
+cargo build --release --manifest-path "$TOML" --quiet >&2
+exec "$BIN" "$@"

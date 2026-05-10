@@ -12,6 +12,13 @@
     "dialog:default",
     "dialog:allow-open",
     "dialog:allow-ask",
-    "shell:allow-open"
+    {
+      "identifier": "shell:allow-open",
+      "allow": [
+        { "url": "https://**" },
+        { "url": "http://**" },
+        { "url": "mailto:**" }
+      ]
+    }
   ]
 }

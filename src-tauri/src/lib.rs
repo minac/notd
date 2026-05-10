@@ -67,6 +67,37 @@ fn mtime_ms(path: &Path) -> Result<i64, String> {
     Ok(dur.as_millis() as i64)
 }
 
+// Write to a sibling `.tmp` file, then rename into place. Guards against
+// truncated reads when Dropbox (or another syncer) observes the file
+// mid-write — a torn `.notd-meta.json` is especially nasty because it
+// triggers a full meta rebuild from index 0, breaking the monotonic
+// `createdIndex` invariant.
+fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), String> {
+    let tmp = path.with_extension("tmp");
+    fs::write(&tmp, contents).map_err(|e| format!("write tmp: {e}"))?;
+    fs::rename(&tmp, path).map_err(|e| format!("rename: {e}"))
+}
+
+// Defense-in-depth for commands that take a `folder: String` from the
+// frontend. Rejects relative paths and non-directories, and canonicalizes
+// to resolve symlinks / `.` / `..`. Callers should use the returned
+// PathBuf instead of `Path::new(&folder)` for any subsequent joins.
+//
+// NOTE: this calls `fs::canonicalize`, which fails if the path doesn't
+// exist. Don't use it in commands that intentionally accept
+// not-yet-created paths (e.g. `path_exists`, `create_dir`).
+fn validate_folder(folder: &str) -> Result<PathBuf, String> {
+    let p = Path::new(folder);
+    if !p.is_absolute() {
+        return Err("storage folder must be an absolute path".into());
+    }
+    let canonical = fs::canonicalize(p).map_err(|e| format!("canonicalize: {e}"))?;
+    if !canonical.is_dir() {
+        return Err("storage folder is not a directory".into());
+    }
+    Ok(canonical)
+}
+
 #[tauri::command]
 fn get_default_storage_folder() -> String {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
@@ -89,11 +120,14 @@ fn create_dir(path: String) -> Result<(), String> {
 
 #[tauri::command]
 fn list_md_files(folder: String) -> Result<Vec<MdFileInfo>, String> {
-    let folder_path = Path::new(&folder);
-    if !folder_path.exists() {
+    // Pre-validation: tolerate the first-run case where the storage folder
+    // hasn't been created yet. The frontend calls list before setup
+    // finishes in some edge paths.
+    if !Path::new(&folder).exists() {
         return Ok(Vec::new());
     }
-    let entries = fs::read_dir(folder_path).map_err(|e| e.to_string())?;
+    let canonical = validate_folder(&folder)?;
+    let entries = fs::read_dir(&canonical).map_err(|e| e.to_string())?;
     let mut files = Vec::new();
     for entry in entries {
         let entry = match entry {
@@ -127,25 +161,29 @@ fn list_md_files(folder: String) -> Result<Vec<MdFileInfo>, String> {
 #[tauri::command]
 fn read_note(folder: String, filename: String) -> Result<String, String> {
     ensure_md_filename(&filename)?;
-    let path = Path::new(&folder).join(&filename);
+    let canonical = validate_folder(&folder)?;
+    let path = canonical.join(&filename);
     fs::read_to_string(&path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn write_note(folder: String, filename: String, contents: String) -> Result<(), String> {
     ensure_md_filename(&filename)?;
-    let folder_path = Path::new(&folder);
-    if !folder_path.exists() {
-        fs::create_dir_all(folder_path).map_err(|e| e.to_string())?;
+    // Preserve the original auto-create behavior: a write should never
+    // fail just because the storage folder hasn't been materialized yet.
+    if !Path::new(&folder).exists() {
+        fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
     }
-    let path = folder_path.join(&filename);
-    fs::write(&path, contents.as_bytes()).map_err(|e| e.to_string())
+    let canonical = validate_folder(&folder)?;
+    let path = canonical.join(&filename);
+    atomic_write(&path, contents.as_bytes())
 }
 
 #[tauri::command]
 fn delete_note(folder: String, filename: String) -> Result<(), String> {
     ensure_md_filename(&filename)?;
-    let path = Path::new(&folder).join(&filename);
+    let canonical = validate_folder(&folder)?;
+    let path = canonical.join(&filename);
     if path.exists() {
         fs::remove_file(&path).map_err(|e| e.to_string())?;
     }
@@ -155,13 +193,15 @@ fn delete_note(folder: String, filename: String) -> Result<(), String> {
 #[tauri::command]
 fn get_mtime(folder: String, filename: String) -> Result<i64, String> {
     ensure_md_filename(&filename)?;
-    let path = Path::new(&folder).join(&filename);
+    let canonical = validate_folder(&folder)?;
+    let path = canonical.join(&filename);
     mtime_ms(&path)
 }
 
 #[tauri::command]
 fn read_meta(folder: String) -> Result<Option<String>, String> {
-    let path = Path::new(&folder).join(".notd-meta.json");
+    let canonical = validate_folder(&folder)?;
+    let path = canonical.join(".notd-meta.json");
     if !path.exists() {
         return Ok(None);
     }
@@ -172,17 +212,20 @@ fn read_meta(folder: String) -> Result<Option<String>, String> {
 
 #[tauri::command]
 fn write_meta(folder: String, json: String) -> Result<(), String> {
-    let folder_path = Path::new(&folder);
-    if !folder_path.exists() {
-        fs::create_dir_all(folder_path).map_err(|e| e.to_string())?;
+    // Same auto-create as write_note: a stale frontend write attempt
+    // shouldn't fail just because the folder hasn't been created yet.
+    if !Path::new(&folder).exists() {
+        fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
     }
-    let path = folder_path.join(".notd-meta.json");
-    fs::write(&path, json.as_bytes()).map_err(|e| e.to_string())
+    let canonical = validate_folder(&folder)?;
+    let path = canonical.join(".notd-meta.json");
+    atomic_write(&path, json.as_bytes())
 }
 
 #[tauri::command]
 fn delete_meta(folder: String) -> Result<(), String> {
-    let path = Path::new(&folder).join(".notd-meta.json");
+    let canonical = validate_folder(&folder)?;
+    let path = canonical.join(".notd-meta.json");
     if path.exists() {
         fs::remove_file(&path).map_err(|e| e.to_string())?;
     }
@@ -211,7 +254,7 @@ fn write_app_config(app: tauri::AppHandle, json: String) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    fs::write(&path, json.as_bytes()).map_err(|e| e.to_string())
+    atomic_write(&path, json.as_bytes())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

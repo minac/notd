@@ -58,10 +58,9 @@
   async function tooltipFor(filename: string): Promise<string> {
     const cached = tooltipCache.get(filename);
     if (cached !== undefined) return cached;
-    const folder = $storageFolder;
-    if (!folder) return '';
+    if (!$storageFolder) return '';
     try {
-      const body = await readNote(folder, filename);
+      const body = await readNote(filename);
       const trimmed = body.replace(/\s+/g, ' ').trim();
       const value = trimmed.length === 0 ? 'Empty note' : trimmed.slice(0, 40);
       tooltipCache.set(filename, value);

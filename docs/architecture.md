@@ -78,3 +78,15 @@ The frontend never touches the file system directly; all I/O goes through these.
 | `tauri-plugin-dialog` | Folder picker (Setup / Settings) and confirm prompts. |
 | `tauri-plugin-shell`  | Opening external links from the Markdown preview.    |
 | `tauri-plugin-window-state` | Persists window size and position across launches. |
+
+The `tauri` crate itself is built with the `tray-icon` and `image-png` features.
+
+## Menu bar tray
+
+notd installs a single tray item (`id: "notd-tray"`) that owns the lifecycle:
+
+- **Closing the window does not quit.** `WindowEvent::CloseRequested` calls `api.prevent_close()` and hides the window. An `AppState.is_quitting` atomic gates the real exit path.
+- **Left-click on the tray icon** → show / unminimize / focus the main window.
+- **Right-click** opens a one-item native menu: **Quit notd**. This is the only way to exit when the window is hidden, since `⌘Q` on a hidden window doesn't reach the menu bar.
+- **macOS dock-icon click** (`RunEvent::Reopen`) also re-shows the window.
+- The tray icon comes in two variants — `tray-light.png` (black glyph) and `tray-dark.png` (white glyph) — baked into the binary with `include_bytes!`. `WindowEvent::ThemeChanged` swaps them at runtime via `apply_tray_theme()`. Regenerate both with `python3 scripts/generate-tray-icon.py` (needs `magick` and `iconutil`).

@@ -23,24 +23,30 @@ struct AppConfig {
 }
 
 fn usage() {
-    println!(
-        "Usage: notd <command> [args]\n\
-\n\
-Commands:\n  \
-  ls                  List notes, oldest → newest (matches app dot order).\n  \
-  show <ref>          Print a note's contents.\n  \
-  path [ref]          Print the storage folder, or a note's full path.\n  \
-  new [body...]       Create a note. Body from args; otherwise stdin.\n  \
-  append <ref> [b...] Append text to a note (a blank line is added first).\n  \
-  edit <ref>          Open a note in $EDITOR.\n  \
-  rm <ref>            Delete a note.\n  \
-  grep <pattern>      ripgrep across notes.\n  \
-  folder              Print the active storage folder.\n  \
-  help                Show this message.\n\
-\n\
-<ref> is a 1-based index from `ls`, a filename like 2026-05-10-214827.md,\n\
-or \"last\" for the most recent note."
+    let text = concat!(
+        "notd — personal drafts app for unformed ideas and todos.\n",
+        "Quick capture lands here first; promote the keepers to Obsidian (notes)\n",
+        "or Todoist (tasks). Anything left in notd is provisional by design.\n",
+        "\n",
+        "Usage: notd <command> [args]\n",
+        "\n",
+        "Commands:\n",
+        "  ls                  List notes, oldest → newest (matches app dot order).\n",
+        "  show <ref>          Print a note's contents.\n",
+        "  path [ref]          Print the storage folder, or a note's full path.\n",
+        "  new [body...]       Create a note. Body from args; otherwise stdin.\n",
+        "  append <ref> [b...] Append text to a note (a blank line is added first).\n",
+        "  edit <ref>          Open a note in $EDITOR.\n",
+        "  rm <ref>            Delete a note.\n",
+        "  grep <pattern>      Case-insensitive search; each hit is prefixed with\n",
+        "                      the note's index, so `rm <idx>` pairs naturally.\n",
+        "  folder              Print the active storage folder.\n",
+        "  help                Show this message.\n",
+        "\n",
+        "<ref> is a 1-based index from `ls`, a filename like 2026-05-10-214827.md,\n",
+        "or \"last\" for the most recent note.",
     );
+    println!("{text}");
 }
 
 fn home() -> PathBuf {

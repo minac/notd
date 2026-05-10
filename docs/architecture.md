@@ -74,7 +74,6 @@ The frontend never touches the file system directly; all I/O goes through these.
 
 | Plugin                | Why                                                  |
 | --------------------- | ---------------------------------------------------- |
-| `tauri-plugin-fs`     | Required by other plugins; not used directly.        |
 | `tauri-plugin-dialog` | Folder picker (Setup / Settings) and confirm prompts. |
 | `tauri-plugin-shell`  | Opening external links from the Markdown preview.    |
 | `tauri-plugin-window-state` | Persists window size and position across launches. |

@@ -17,24 +17,32 @@ export async function createDir(path: string): Promise<void> {
   await invoke('create_dir', { path });
 }
 
-export async function listMarkdownFiles(folder: string): Promise<MdFileInfo[]> {
-  return invoke<MdFileInfo[]>('list_md_files', { folder });
+// One-time handshake: the renderer resolves & creates the user's chosen
+// folder, then hands it to Rust. Every storage command below reads from
+// Rust state — the folder is never passed again. Must be called before
+// any of {listMarkdownFiles, readNote, writeNote, ...}.
+export async function setStorageFolder(folder: string): Promise<void> {
+  await invoke('set_storage_folder', { folder });
 }
 
-export async function readNote(folder: string, filename: string): Promise<string> {
-  return invoke<string>('read_note', { folder, filename });
+export async function listMarkdownFiles(): Promise<MdFileInfo[]> {
+  return invoke<MdFileInfo[]>('list_md_files');
 }
 
-export async function writeNote(folder: string, filename: string, contents: string): Promise<void> {
-  await invoke('write_note', { folder, filename, contents });
+export async function readNote(filename: string): Promise<string> {
+  return invoke<string>('read_note', { filename });
 }
 
-export async function deleteNote(folder: string, filename: string): Promise<void> {
-  await invoke('delete_note', { folder, filename });
+export async function writeNote(filename: string, contents: string): Promise<void> {
+  await invoke('write_note', { filename, contents });
 }
 
-export async function getMtime(folder: string, filename: string): Promise<number> {
-  return invoke<number>('get_mtime', { folder, filename });
+export async function deleteNote(filename: string): Promise<void> {
+  await invoke('delete_note', { filename });
+}
+
+export async function getMtime(filename: string): Promise<number> {
+  return invoke<number>('get_mtime', { filename });
 }
 
 export async function readAppConfig(): Promise<string | null> {

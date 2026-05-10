@@ -1,7 +1,13 @@
 <script lang="ts">
   import { onMount, createEventDispatcher } from 'svelte';
   import { open } from '@tauri-apps/plugin-dialog';
-  import { getDefaultStorageFolder, createDir, writeAppConfig, pathExists } from '$lib/fs';
+  import {
+    getDefaultStorageFolder,
+    createDir,
+    writeAppConfig,
+    pathExists,
+    setStorageFolder
+  } from '$lib/fs';
   import { writeMeta } from '$lib/meta';
 
   const dispatch = createEventDispatcher<{ done: { folder: string } }>();
@@ -20,7 +26,11 @@
     try {
       const exists = await pathExists(folder);
       if (!exists) await createDir(folder);
-      await writeMeta(folder, { version: 1, notes: [], nextIndex: 0 });
+      // Hand the canonical folder to Rust BEFORE the first storage call;
+      // writeMeta below reads it from AppState rather than taking a
+      // folder argument.
+      await setStorageFolder(folder);
+      await writeMeta({ version: 1, notes: [], nextIndex: 0 });
       await writeAppConfig(JSON.stringify({ storageFolder: folder }));
       dispatch('done', { folder });
     } catch (e) {

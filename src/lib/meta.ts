@@ -12,30 +12,54 @@ export interface Meta {
   nextIndex: number;
 }
 
-export const EMPTY_META: Meta = { version: 1, notes: [], nextIndex: 0 };
+export const CURRENT_META_VERSION = 1;
 
-export async function readMetaRaw(folder: string): Promise<string | null> {
-  return invoke<string | null>('read_meta', { folder });
+export const EMPTY_META: Meta = { version: CURRENT_META_VERSION, notes: [], nextIndex: 0 };
+
+export async function readMetaRaw(): Promise<string | null> {
+  return invoke<string | null>('read_meta');
 }
 
-export async function writeMeta(folder: string, meta: Meta): Promise<void> {
-  await invoke('write_meta', { folder, json: JSON.stringify(meta, null, 2) });
+// Returns the contents of `.notd-meta.json.bak` if Rust finds one. Used
+// only as a fallback when the primary meta is missing or invalid.
+export async function readMetaBakRaw(): Promise<string | null> {
+  return invoke<string | null>('read_meta_bak');
 }
 
-export async function deleteMetaFile(folder: string): Promise<void> {
-  await invoke('delete_meta', { folder });
+export async function writeMeta(meta: Meta): Promise<void> {
+  await invoke('write_meta', { json: JSON.stringify(meta, null, 2) });
 }
 
-export async function rebuildMeta(folder: string): Promise<Meta> {
-  const files = await listMarkdownFiles(folder);
+export async function deleteMetaFile(): Promise<void> {
+  await invoke('delete_meta');
+}
+
+export async function rebuildMeta(): Promise<Meta> {
+  const files = await listMarkdownFiles();
   files.sort((a, b) => a.mtime_ms - b.mtime_ms);
   const meta: Meta = {
-    version: 1,
+    version: CURRENT_META_VERSION,
     notes: files.map((f, i) => ({ filename: f.filename, createdIndex: i })),
     nextIndex: files.length
   };
-  await writeMeta(folder, meta);
+  await writeMeta(meta);
   return meta;
+}
+
+// Called from loadMeta() between JSON.parse and isValidMeta. Receives anything
+// (parsed JSON of unknown shape) and returns a value that should then be passed
+// to isValidMeta. Must be a no-op for already-current-version metas.
+function migrate(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object') return raw;
+  const m = raw as Record<string, unknown>;
+  if (typeof m.version !== 'number') return raw;
+  let current = m;
+  // Future: when we bump schema, add transforms here.
+  // Example shape, leave commented as guidance:
+  // if (current.version === 1) {
+  //   current = { ...current, version: 2, /* new field */ };
+  // }
+  return current;
 }
 
 function isValidMeta(value: unknown): value is Meta {
@@ -62,25 +86,43 @@ function isValidMeta(value: unknown): value is Meta {
   return true;
 }
 
-export async function loadMeta(folder: string): Promise<Meta> {
-  const raw = await readMetaRaw(folder);
-  if (raw === null) {
-    return rebuildMeta(folder);
-  }
+// Try to parse and validate a raw meta JSON blob. Returns the Meta on
+// success, null on any failure (parse error, schema mismatch, invariant
+// violation). Used by both the primary-meta and bak fallback paths.
+function tryParseMeta(raw: string | null): Meta | null {
+  if (raw === null) return null;
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return rebuildMeta(folder);
+    return null;
   }
-  if (!isValidMeta(parsed)) {
-    return rebuildMeta(folder);
-  }
-  return reconcile(folder, parsed);
+  const migrated = migrate(parsed);
+  if (!isValidMeta(migrated)) return null;
+  // Forward-compat guard: a meta written by a newer build of the app could pass
+  // structural validation but carry a version we don't understand. Treat as
+  // invalid so loadMeta falls through to bak/rebuild rather than silently
+  // writing data the newer app expects.
+  if (migrated.version !== CURRENT_META_VERSION) return null;
+  return migrated;
 }
 
-async function reconcile(folder: string, meta: Meta): Promise<Meta> {
-  const files = await listMarkdownFiles(folder);
+export async function loadMeta(): Promise<Meta> {
+  const primary = tryParseMeta(await readMetaRaw());
+  if (primary) return reconcile(primary);
+
+  // Primary missing or corrupt. Try the bak snapshot before falling
+  // through to a full rebuild — the bak preserves the monotonic
+  // `createdIndex` invariant, while rebuild restarts from 0 and shuffles
+  // every dot's color.
+  const bak = tryParseMeta(await readMetaBakRaw());
+  if (bak) return reconcile(bak);
+
+  return rebuildMeta();
+}
+
+async function reconcile(meta: Meta): Promise<Meta> {
+  const files = await listMarkdownFiles();
   const onDisk = new Set(files.map((f) => f.filename));
   const inMeta = new Set(meta.notes.map((n) => n.filename));
 
@@ -101,7 +143,7 @@ async function reconcile(folder: string, meta: Meta): Promise<Meta> {
     nextIndex++;
   }
 
-  const reconciled: Meta = { version: 1, notes, nextIndex };
+  const reconciled: Meta = { version: CURRENT_META_VERSION, notes, nextIndex };
   const changed =
     notes.length !== meta.notes.length ||
     nextIndex !== meta.nextIndex ||
@@ -111,7 +153,7 @@ async function reconcile(folder: string, meta: Meta): Promise<Meta> {
     });
 
   if (changed) {
-    await writeMeta(folder, reconciled);
+    await writeMeta(reconciled);
   }
   return reconciled;
 }
@@ -123,7 +165,7 @@ export function addNoteToMeta(
   const createdIndex = meta.nextIndex;
   return {
     meta: {
-      version: 1,
+      version: CURRENT_META_VERSION,
       notes: [...meta.notes, { filename, createdIndex }],
       nextIndex: meta.nextIndex + 1
     },
@@ -133,7 +175,7 @@ export function addNoteToMeta(
 
 export function removeNoteFromMeta(meta: Meta, filename: string): Meta {
   return {
-    version: 1,
+    version: CURRENT_META_VERSION,
     notes: meta.notes.filter((n) => n.filename !== filename),
     nextIndex: meta.nextIndex
   };

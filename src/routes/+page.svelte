@@ -18,9 +18,9 @@
     readNote,
     writeNote,
     deleteNote,
-    listMarkdownFiles,
     getMtime,
-    createDir
+    createDir,
+    setStorageFolder
   } from '$lib/fs';
   import {
     loadMeta,
@@ -87,9 +87,12 @@
           return;
         }
       }
+      // Tell Rust the canonical folder before any storage call. From here
+      // on, fs/meta wrappers don't take a folder — they read AppState.
+      await setStorageFolder(folder);
       storageFolder.set(folder);
 
-      const m = await loadMeta(folder);
+      const m = await loadMeta();
       meta.set(m);
 
       let initial: string | null = null;
@@ -100,7 +103,7 @@
       }
 
       if (initial) {
-        await loadActive(folder, initial);
+        await loadActive(initial);
       } else {
         activeFilename.set(null);
         activeBody.set('');
@@ -117,9 +120,11 @@
     }
   }
 
-  async function loadActive(folder: string, filename: string) {
-    const body = await readNote(folder, filename);
-    const mtime = await getMtime(folder, filename).catch(() => Date.now());
+  async function loadActive(filename: string) {
+    const folder = $storageFolder;
+    if (!folder) return;
+    const body = await readNote(filename);
+    const mtime = await getMtime(filename).catch(() => Date.now());
     activeFilename.set(filename);
     activeBody.set(body);
     lastSavedBody.set(body);
@@ -136,9 +141,9 @@
       return;
     }
     try {
-      await writeNote(folder, filename, value);
+      await writeNote(filename, value);
       lastSavedBody.set(value);
-      lastKnownMtime.set(await getMtime(folder, filename).catch(() => Date.now()));
+      lastKnownMtime.set(await getMtime(filename).catch(() => Date.now()));
       if ($banner?.kind === 'error') banner.set(null);
     } catch (e) {
       banner.set({ kind: 'error', message: `Could not save: ${String(e)}`, filename });
@@ -182,7 +187,7 @@
     await flushPendingSave();
     const folder = $storageFolder;
     if (!folder) return;
-    await loadActive(folder, filename);
+    await loadActive(filename);
     banner.set(null);
     mode.set('edit');
     await tick();
@@ -196,11 +201,11 @@
     const existing = new Set($meta.notes.map((n) => n.filename));
     const filename = resolveCollision(generateFilename(), existing);
     try {
-      await writeNote(folder, filename, '');
+      await writeNote(filename, '');
       const { meta: nextMeta } = addNoteToMeta($meta, filename);
       meta.set(nextMeta);
-      await writeMeta(folder, nextMeta);
-      await loadActive(folder, filename);
+      await writeMeta(nextMeta);
+      await loadActive(filename);
       banner.set(null);
       mode.set('edit');
       await tick();
@@ -220,15 +225,15 @@
     const deletedIndex = deletedEntry?.createdIndex ?? null;
 
     try {
-      await deleteNote(folder, filename);
+      await deleteNote(filename);
       const nextMeta = removeNoteFromMeta($meta, filename);
       meta.set(nextMeta);
-      await writeMeta(folder, nextMeta);
+      await writeMeta(nextMeta);
 
       if ($activeFilename === filename) {
         const target = pickNeighbor(nextMeta.notes, deletedIndex);
         if (target) {
-          await loadActive(folder, target);
+          await loadActive(target);
         } else {
           activeFilename.set(null);
           activeBody.set('');
@@ -267,7 +272,7 @@
     const folder = $storageFolder;
     if (!folder) return;
     try {
-      const m = await loadMeta(folder);
+      const m = await loadMeta();
       meta.set(m);
 
       const active = $activeFilename;
@@ -275,7 +280,7 @@
         const stillExists = m.notes.some((n) => n.filename === active);
         if (!stillExists) {
           const sorted = [...m.notes].sort((a, b) => a.createdIndex - b.createdIndex);
-          if (sorted.length > 0) await loadActive(folder, sorted[0].filename);
+          if (sorted.length > 0) await loadActive(sorted[0].filename);
           else {
             activeFilename.set(null);
             activeBody.set('');
@@ -284,7 +289,7 @@
           }
           return;
         }
-        const mtime = await getMtime(folder, active).catch(() => 0);
+        const mtime = await getMtime(active).catch(() => 0);
         if (mtime > $lastKnownMtime) {
           const isDirty = $activeBody !== $lastSavedBody;
           if (isDirty) {
@@ -294,7 +299,7 @@
               filename: active
             });
           } else {
-            const body = await readNote(folder, active);
+            const body = await readNote(active);
             activeBody.set(body);
             lastSavedBody.set(body);
             lastKnownMtime.set(mtime);
@@ -319,9 +324,9 @@
     banner.set(null);
     if (!folder || !filename) return;
     try {
-      await writeNote(folder, filename, $activeBody);
+      await writeNote(filename, $activeBody);
       lastSavedBody.set($activeBody);
-      lastKnownMtime.set(await getMtime(folder, filename).catch(() => Date.now()));
+      lastKnownMtime.set(await getMtime(filename).catch(() => Date.now()));
     } catch (e) {
       banner.set({ kind: 'error', message: `Could not save: ${String(e)}`, filename });
     }
@@ -334,8 +339,8 @@
     banner.set(null);
     if (!folder || !filename) return;
     try {
-      const body = await readNote(folder, filename);
-      const mtime = await getMtime(folder, filename).catch(() => Date.now());
+      const body = await readNote(filename);
+      const mtime = await getMtime(filename).catch(() => Date.now());
       activeBody.set(body);
       lastSavedBody.set(body);
       lastKnownMtime.set(mtime);
@@ -346,8 +351,12 @@
 
   async function handleSetupDone(detail: { folder: string }) {
     try {
+      // Setup.svelte already called setStorageFolder before writing the
+      // initial meta. Re-call here defensively — it's idempotent and
+      // makes the bootstrap and setup paths look the same.
+      await setStorageFolder(detail.folder);
       storageFolder.set(detail.folder);
-      const m = await loadMeta(detail.folder);
+      const m = await loadMeta();
       meta.set(m);
       await persistConfig(detail.folder, null);
       activeFilename.set(null);
@@ -367,12 +376,16 @@
       await flushPendingSave();
       const exists = await pathExists(folder);
       if (!exists) await createDir(folder);
+      // Swap Rust's canonical folder before any storage call. Until this
+      // returns, loadMeta/loadActive would still operate on the previous
+      // folder.
+      await setStorageFolder(folder);
       storageFolder.set(folder);
-      const m = await loadMeta(folder);
+      const m = await loadMeta();
       meta.set(m);
       const sorted = [...m.notes].sort((a, b) => a.createdIndex - b.createdIndex);
       if (sorted.length > 0) {
-        await loadActive(folder, sorted[0].filename);
+        await loadActive(sorted[0].filename);
       } else {
         activeFilename.set(null);
         activeBody.set('');
@@ -391,8 +404,8 @@
     const folder = $storageFolder;
     if (!folder) return;
     try {
-      await deleteMetaFile(folder);
-      const m = await rebuildMeta(folder);
+      await deleteMetaFile();
+      const m = await rebuildMeta();
       meta.set(m);
       settingsOpen.set(false);
     } catch (e) {

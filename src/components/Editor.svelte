@@ -42,8 +42,8 @@
   on:scroll={handleScroll}
   spellcheck="true"
   autocomplete="off"
-  autocorrect="off"
   autocapitalize="off"
+  {...{ autocorrect: 'off' }}
 ></textarea>
 
 <style>

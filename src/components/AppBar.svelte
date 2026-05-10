@@ -4,8 +4,8 @@
 
   const dispatch = createEventDispatcher<{ clear: void }>();
 
-  $: hasText = $activeBody.length > 0;
-  $: toggleLabel = $mode === 'edit' ? 'Preview' : 'Edit';
+  let hasText = $derived($activeBody.length > 0);
+  let toggleLabel = $derived($mode === 'edit' ? 'Preview' : 'Edit');
 
   function toggle() {
     mode.update((m) => (m === 'edit' ? 'preview' : 'edit'));
@@ -26,13 +26,13 @@
 </script>
 
 <div class="bar">
-  <button class="btn" type="button" disabled={!hasText} on:click={copy}>
+  <button class="btn" type="button" disabled={!hasText} onclick={copy}>
     Copy to clipboard
   </button>
-  <button class="btn" type="button" disabled={!hasText} on:click={clear}>
+  <button class="btn" type="button" disabled={!hasText} onclick={clear}>
     Clear text
   </button>
-  <button class="btn" type="button" on:click={toggle}>{toggleLabel}</button>
+  <button class="btn" type="button" onclick={toggle}>{toggleLabel}</button>
 </div>
 
 <style>

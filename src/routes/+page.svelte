@@ -45,8 +45,8 @@
 
   type Phase = 'loading' | 'setup' | 'app';
 
-  let phase: Phase = 'loading';
-  let editorRef: Editor | undefined;
+  let phase: Phase = $state('loading');
+  let editorRef: Editor | undefined = $state();
 
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
   const SAVE_DEBOUNCE_MS = 500;
@@ -439,9 +439,11 @@
   });
 
   // When mode flips back to edit, focus the textarea on next tick.
-  $: if (phase === 'app' && $mode === 'edit') {
-    tick().then(() => editorRef?.focus());
-  }
+  $effect(() => {
+    if (phase === 'app' && $mode === 'edit') {
+      tick().then(() => editorRef?.focus());
+    }
+  });
 </script>
 
 {#if phase === 'loading'}

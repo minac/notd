@@ -39,9 +39,9 @@
   }
 </script>
 
-<svelte:window on:keydown={handleKey} />
+<svelte:window onkeydown={handleKey} />
 
-<div class="overlay" on:mousedown={backdropClick} role="presentation">
+<div class="overlay" onmousedown={backdropClick} role="presentation">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
     <h2 id="settings-title">Settings</h2>
 
@@ -49,16 +49,16 @@
       <div class="label">Storage folder</div>
       <div class="row">
         <code class="path">{$storageFolder ?? ''}</code>
-        <button type="button" on:click={changeFolder}>Change…</button>
+        <button type="button" onclick={changeFolder}>Change…</button>
       </div>
     </div>
 
     <div class="field">
-      <button type="button" class="warn" on:click={resetColors}>Reset color order</button>
+      <button type="button" class="warn" onclick={resetColors}>Reset color order</button>
     </div>
 
     <div class="footer">
-      <button type="button" class="primary" on:click={close}>Close</button>
+      <button type="button" class="primary" onclick={close}>Close</button>
     </div>
   </div>
 </div>

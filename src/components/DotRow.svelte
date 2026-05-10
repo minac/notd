@@ -12,13 +12,16 @@
   }>();
 
   // Tooltip cache: filename → first 40 chars of body (or "Empty note").
-  // Loaded lazily on first hover and cleared when meta changes.
+  // Loaded lazily on first hover and cleared when the note list changes.
   const tooltipCache = new Map<string, string>();
-  $: $sortedNotes, tooltipCache.clear();
+  $effect(() => {
+    $sortedNotes;
+    tooltipCache.clear();
+  });
 
-  let menuFor: string | null = null;
-  let menuX = 0;
-  let menuY = 0;
+  let menuFor: string | null = $state(null);
+  let menuX = $state(0);
+  let menuY = $state(0);
 
   function selectNote(filename: string) {
     closeMenu();
@@ -75,7 +78,7 @@
   }
 </script>
 
-<svelte:window on:click={closeMenu} on:contextmenu={(e) => { if (menuFor) closeMenu(); }} />
+<svelte:window onclick={closeMenu} oncontextmenu={(e) => { if (menuFor) closeMenu(); }} />
 
 <div class="dot-row" role="toolbar" aria-label="Notes">
   {#each $sortedNotes as note (note.filename)}
@@ -87,17 +90,17 @@
       style="--c: {color};"
       type="button"
       aria-label="Open note"
-      on:click={() => selectNote(note.filename)}
-      on:contextmenu={(e) => onContextMenu(e, note.filename)}
-      on:mouseenter={(e) => handleMouseEnter(e, note.filename)}
+      onclick={() => selectNote(note.filename)}
+      oncontextmenu={(e) => onContextMenu(e, note.filename)}
+      onmouseenter={(e) => handleMouseEnter(e, note.filename)}
     ></button>
   {/each}
-  <button class="add" type="button" aria-label="New note" on:click={newNote}>+</button>
+  <button class="add" type="button" aria-label="New note" onclick={newNote}>+</button>
 </div>
 
 {#if menuFor}
   <div class="menu" style="left: {menuX}px; top: {menuY}px;" role="menu">
-    <button type="button" role="menuitem" on:click={() => menuFor && confirmDelete(menuFor)}>
+    <button type="button" role="menuitem" onclick={() => menuFor && confirmDelete(menuFor)}>
       Delete note
     </button>
   </div>

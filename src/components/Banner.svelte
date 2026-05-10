@@ -18,12 +18,12 @@
     <span class="msg">{$banner.message}</span>
     <span class="actions">
       {#if $banner.kind === 'error'}
-        <button type="button" on:click={() => dispatch('retry')}>Retry</button>
+        <button type="button" onclick={() => dispatch('retry')}>Retry</button>
       {:else if $banner.kind === 'conflict'}
-        <button type="button" on:click={() => dispatch('keepMine')}>Keep mine</button>
-        <button type="button" on:click={() => dispatch('useTheirs')}>Use theirs</button>
+        <button type="button" onclick={() => dispatch('keepMine')}>Keep mine</button>
+        <button type="button" onclick={() => dispatch('useTheirs')}>Use theirs</button>
       {/if}
-      <button type="button" class="close" aria-label="Dismiss" on:click={dismiss}>×</button>
+      <button type="button" class="close" aria-label="Dismiss" onclick={dismiss}>×</button>
     </span>
   </div>
 {/if}

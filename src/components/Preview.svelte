@@ -3,7 +3,7 @@
   import { renderMarkdown } from '$lib/markdown';
   import { open as shellOpen } from '@tauri-apps/plugin-shell';
 
-  $: html = renderMarkdown($activeBody);
+  let html = $derived(renderMarkdown($activeBody));
 
   function handleClick(e: MouseEvent) {
     const target = (e.target as HTMLElement | null)?.closest('a');
@@ -15,7 +15,7 @@
   }
 </script>
 
-<div class="preview" on:click={handleClick} role="presentation">
+<div class="preview" onclick={handleClick} role="presentation">
   {@html html}
 </div>
 

@@ -6,9 +6,9 @@
 
   const dispatch = createEventDispatcher<{ done: { folder: string } }>();
 
-  let defaultFolder = '';
-  let busy = false;
-  let error = '';
+  let defaultFolder = $state('');
+  let busy = $state(false);
+  let error = $state('');
 
   onMount(async () => {
     defaultFolder = await getDefaultStorageFolder();
@@ -47,8 +47,8 @@
     <div class="path">{defaultFolder || '…'}</div>
 
     <div class="row">
-      <button type="button" class="primary" disabled={busy} on:click={useDefault}>Use default</button>
-      <button type="button" disabled={busy} on:click={chooseFolder}>Choose folder…</button>
+      <button type="button" class="primary" disabled={busy} onclick={useDefault}>Use default</button>
+      <button type="button" disabled={busy} onclick={chooseFolder}>Choose folder…</button>
     </div>
 
     {#if error}

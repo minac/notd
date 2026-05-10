@@ -3,6 +3,11 @@
   import { onMount } from 'svelte';
   import { theme } from '$lib/stores';
   import type { Theme } from '$lib/colors';
+  interface Props {
+    children?: import('svelte').Snippet;
+  }
+
+  let { children }: Props = $props();
 
   function applyTheme(t: Theme) {
     document.documentElement.setAttribute('data-theme', t);
@@ -36,4 +41,4 @@
   });
 </script>
 
-<slot />
+{@render children?.()}

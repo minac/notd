@@ -2,9 +2,13 @@
   import { activeBody, editorScrollTop } from '$lib/stores';
   import { onMount, tick } from 'svelte';
 
-  export let onInput: () => void = () => {};
+  interface Props {
+    onInput?: () => void;
+  }
 
-  let textarea: HTMLTextAreaElement;
+  let { onInput = () => {} }: Props = $props();
+
+  let textarea: HTMLTextAreaElement | undefined = $state();
 
   export function focus() {
     textarea?.focus();
@@ -37,9 +41,9 @@
 <textarea
   bind:this={textarea}
   bind:value={$activeBody}
-  on:input={onInput}
-  on:keydown={handleKeyDown}
-  on:scroll={handleScroll}
+  oninput={onInput}
+  onkeydown={handleKeyDown}
+  onscroll={handleScroll}
   spellcheck="true"
   autocomplete="off"
   autocapitalize="off"

@@ -1,13 +1,15 @@
+use notify_debouncer_full::notify::{RecommendedWatcher, RecursiveMode};
+use notify_debouncer_full::{new_debouncer, DebounceEventResult, Debouncer, RecommendedCache};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
-use tauri::{Manager, RunEvent, State, Theme, WindowEvent};
+use tauri::{Emitter, Manager, RunEvent, State, Theme, WindowEvent};
 
 const TRAY_ICON_LIGHT: &[u8] = include_bytes!("../icons/tray-light.png");
 const TRAY_ICON_DARK: &[u8] = include_bytes!("../icons/tray-dark.png");
@@ -37,6 +39,11 @@ struct AppState {
     // folder. All storage commands read this — the renderer is no longer
     // trusted to pass the folder on every call.
     storage_folder: Mutex<Option<PathBuf>>,
+    // Debounced FS watcher for the current storage folder. Replaced when the
+    // user changes the folder via Settings. The `Drop` impl on `Debouncer`
+    // stops the underlying watcher thread, so simply overwriting this field
+    // tears down the previous watcher.
+    watcher: Mutex<Option<Debouncer<RecommendedWatcher, RecommendedCache>>>,
 }
 
 fn show_main_window(app: &tauri::AppHandle) {
@@ -167,15 +174,100 @@ fn create_dir(path: String) -> Result<(), String> {
 // it with a different folder simply swaps the canonical path. The lock is
 // released before any IO so we don't hold it across an `await` on the JS
 // side.
+//
+// As a side effect, this (re)installs a debounced filesystem watcher
+// rooted at the new folder. The watcher emits a `fs-changed` Tauri event
+// whenever a non-hidden `.md` file changes, so the frontend can refresh
+// in near-real-time instead of waiting for a window-focus event.
+// Watcher creation failure is intentionally non-fatal: the focus-based
+// refresh still works, and we'd rather not refuse the folder switch over
+// a missing watcher.
 #[tauri::command]
-fn set_storage_folder(state: State<'_, AppState>, folder: String) -> Result<(), String> {
+fn set_storage_folder(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    folder: String,
+) -> Result<(), String> {
     let canonical = validate_folder(&folder)?;
-    let mut guard = state
-        .storage_folder
-        .lock()
-        .map_err(|e| format!("state lock: {e}"))?;
-    *guard = Some(canonical);
+    {
+        let mut guard = state
+            .storage_folder
+            .lock()
+            .map_err(|e| format!("state lock: {e}"))?;
+        *guard = Some(canonical.clone());
+    }
+    install_watcher(&app, &state, &canonical);
     Ok(())
+}
+
+// Build a fresh debounced watcher for `folder` and stash it in AppState,
+// dropping any previous watcher. Best-effort: errors are logged and
+// swallowed.
+//
+// Filtering happens callback-side: notify-debouncer-full's API doesn't
+// expose a path predicate, so we examine each batch and only emit the
+// `fs-changed` event if at least one event touches a non-hidden `.md`
+// file. This naturally ignores our own `.<name>.tmp`, `.notd-meta.json`,
+// `.notd-meta.json.bak`, and macOS `.DS_Store` traffic — exactly the
+// noise that would otherwise feedback-loop into refreshFromDisk.
+fn install_watcher(app: &tauri::AppHandle, state: &State<'_, AppState>, folder: &Path) {
+    let app_for_cb = app.clone();
+    let result = new_debouncer(
+        Duration::from_millis(500),
+        None,
+        move |res: DebounceEventResult| match res {
+            Ok(events) => {
+                let touches_md = events.iter().any(|ev| {
+                    ev.event.paths.iter().any(|p| {
+                        let is_md = p.extension().and_then(|s| s.to_str()) == Some("md");
+                        let is_hidden = p
+                            .file_name()
+                            .and_then(|s| s.to_str())
+                            .map(|n| n.starts_with('.'))
+                            .unwrap_or(true);
+                        is_md && !is_hidden
+                    })
+                });
+                if touches_md {
+                    let _ = app_for_cb.emit("fs-changed", ());
+                }
+            }
+            Err(errors) => {
+                for e in errors {
+                    eprintln!("fs watcher error: {e:?}");
+                }
+            }
+        },
+    );
+
+    let mut debouncer = match result {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("fs watcher: failed to create debouncer: {e:?}");
+            // Still clear any previous watcher so we don't keep stale
+            // notifications flowing from the old folder.
+            if let Ok(mut guard) = state.watcher.lock() {
+                *guard = None;
+            }
+            return;
+        }
+    };
+
+    // The storage folder is flat — no `.md` files live in subdirectories.
+    if let Err(e) = debouncer.watch(folder, RecursiveMode::NonRecursive) {
+        eprintln!("fs watcher: failed to watch {folder:?}: {e:?}");
+        if let Ok(mut guard) = state.watcher.lock() {
+            *guard = None;
+        }
+        return;
+    }
+
+    if let Ok(mut guard) = state.watcher.lock() {
+        // Assigning here drops the previous debouncer, which stops its
+        // event thread. Order matters: we replace _after_ the new one is
+        // wired up so there's no observable gap.
+        *guard = Some(debouncer);
+    }
 }
 
 #[tauri::command]
@@ -346,6 +438,7 @@ pub fn run() {
         .manage(AppState {
             is_quitting: AtomicBool::new(false),
             storage_folder: Mutex::new(None),
+            watcher: Mutex::new(None),
         })
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())

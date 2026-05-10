@@ -55,6 +55,7 @@
 
   let detachShortcuts: (() => void) | undefined;
   let unlistenFocus: (() => void) | undefined;
+  let unlistenFsChanged: (() => void) | undefined;
 
   async function persistConfig(folder: string, active: string | null) {
     await writeAppConfig(JSON.stringify({ storageFolder: folder, activeFilename: active }));
@@ -447,11 +448,29 @@
         unlistenFocus = () => window.removeEventListener('focus', handler);
       }
     })();
+
+    // Real-time FS watcher: Rust emits `fs-changed` (debounced 500ms) when
+    // an external process (e.g. Dropbox syncing from another device)
+    // touches a non-hidden `.md` file in the storage folder. We just
+    // re-run the same refresh used on window focus — it already does the
+    // dirty/clean conflict handling. Focus-based refresh stays in place
+    // as a defensive fallback for events the watcher misses (sleep, etc.).
+    (async () => {
+      try {
+        const { listen } = await import('@tauri-apps/api/event');
+        unlistenFsChanged = await listen('fs-changed', () => {
+          refreshFromDisk();
+        });
+      } catch (e) {
+        console.warn('fs-changed listener failed:', e);
+      }
+    })();
   });
 
   onDestroy(() => {
     if (detachShortcuts) detachShortcuts();
     if (unlistenFocus) unlistenFocus();
+    if (unlistenFsChanged) unlistenFsChanged();
     if (saveTimer !== null) clearTimeout(saveTimer);
   });
 

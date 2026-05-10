@@ -71,7 +71,6 @@ python3 scripts/generate-icons.py       # placeholder app icons (rarely needed)
 - **Default storage folder is `~/Dropbox/Apps/notd`** (`get_default_storage_folder` in Rust). The user can move it via Settings; don't hardcode the Dropbox path elsewhere.
 - **App config lives at `~/Library/Application Support/eu.migueldavid.notd/config.json`** (storageFolder + activeFilename). Bundle identifier `eu.migueldavid.notd` is referenced in CSP and config paths — keep it in sync if it ever changes.
 - **Filenames are never shown in the UI.** The dot row is the entire navigation surface. Don't surface `2026-05-06-143012.md` to the user.
-- **`.ver` (currently `1.1.1`)** is a release marker file at repo root. Bump alongside `package.json` / `Cargo.toml` / `tauri.conf.json` versions when shipping.
 
 ## Project docs
 

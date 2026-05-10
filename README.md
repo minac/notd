@@ -2,6 +2,8 @@
 
 A boring, fast, native-feeling macOS app for capturing short text drafts. Each draft is one `.md` file in a folder you choose (default `~/Dropbox/Apps/notd/`). Notes are represented by a row of colored dots at the top of the window — filenames are never shown. Sync is whatever your Dropbox client does; the app itself does no network I/O.
 
+notd lives in the menu bar. Closing the window hides it; clicking the tray icon brings it back. Right-click the tray icon → **Quit notd** (or `⌘Q`) to actually exit.
+
 ## Local development
 
 Prerequisites:

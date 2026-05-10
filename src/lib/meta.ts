@@ -44,10 +44,21 @@ function isValidMeta(value: unknown): value is Meta {
   if (typeof m.version !== 'number') return false;
   if (!Array.isArray(m.notes)) return false;
   if (typeof m.nextIndex !== 'number') return false;
+  if (!Number.isInteger(m.nextIndex) || m.nextIndex < 0) return false;
+  const seenIndices = new Set<number>();
+  const seenFilenames = new Set<string>();
+  let maxIndex = -1;
   for (const n of m.notes) {
-    if (typeof n?.filename !== 'string') return false;
+    if (typeof n?.filename !== 'string' || n.filename === '') return false;
     if (typeof n?.createdIndex !== 'number') return false;
+    if (!Number.isInteger(n.createdIndex) || n.createdIndex < 0) return false;
+    if (seenIndices.has(n.createdIndex)) return false;
+    if (seenFilenames.has(n.filename)) return false;
+    seenIndices.add(n.createdIndex);
+    seenFilenames.add(n.filename);
+    if (n.createdIndex > maxIndex) maxIndex = n.createdIndex;
   }
+  if (m.nextIndex <= maxIndex) return false;
   return true;
 }
 

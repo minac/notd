@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A single-window macOS Tauri 2 app for capturing short Markdown drafts. Frontend: SvelteKit 4 (SPA, prerendered, SSR off). Backend: ~300 lines of Rust exposing `#[tauri::command]` file I/O. No tests — verify changes by running the app.
+A single-window macOS Tauri 2 app for capturing short Markdown drafts. Frontend: SvelteKit 2 + Svelte 5 (SPA, prerendered, SSR off). Backend: ~300 lines of Rust exposing `#[tauri::command]` file I/O. No tests — verify changes by running the app.
 
 ## Commands
 

@@ -1,6 +1,6 @@
 # Architecture
 
-A single-window macOS app. The frontend is Svelte 4 (SPA, prerendered) talking to a thin Rust backend over Tauri's IPC.
+A single-window macOS app. The frontend is Svelte 5 (SPA, prerendered) talking to a thin Rust backend over Tauri's IPC.
 
 ## Layout
 

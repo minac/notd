@@ -72,45 +72,50 @@
   }
 
   async function bootstrap() {
-    const cfg = await loadConfig();
-    const folder = cfg?.storageFolder;
-    if (!folder) {
-      phase = 'setup';
-      return;
-    }
-    const exists = await pathExists(folder);
-    if (!exists) {
-      try {
-        await createDir(folder);
-      } catch {
+    try {
+      const cfg = await loadConfig();
+      const folder = cfg?.storageFolder;
+      if (!folder) {
         phase = 'setup';
         return;
       }
+      const exists = await pathExists(folder);
+      if (!exists) {
+        try {
+          await createDir(folder);
+        } catch {
+          phase = 'setup';
+          return;
+        }
+      }
+      storageFolder.set(folder);
+
+      const m = await loadMeta(folder);
+      meta.set(m);
+
+      let initial: string | null = null;
+      if (cfg?.activeFilename && m.notes.some((n) => n.filename === cfg.activeFilename)) {
+        initial = cfg.activeFilename;
+      } else if (m.notes.length > 0) {
+        initial = [...m.notes].sort((a, b) => a.createdIndex - b.createdIndex)[0].filename;
+      }
+
+      if (initial) {
+        await loadActive(folder, initial);
+      } else {
+        activeFilename.set(null);
+        activeBody.set('');
+        lastSavedBody.set('');
+        lastKnownMtime.set(0);
+      }
+
+      phase = 'app';
+      await tick();
+      editorRef?.focus();
+    } catch (e) {
+      console.error('bootstrap failed:', e);
+      phase = 'setup';
     }
-    storageFolder.set(folder);
-
-    const m = await loadMeta(folder);
-    meta.set(m);
-
-    let initial: string | null = null;
-    if (cfg?.activeFilename && m.notes.some((n) => n.filename === cfg.activeFilename)) {
-      initial = cfg.activeFilename;
-    } else if (m.notes.length > 0) {
-      initial = [...m.notes].sort((a, b) => a.createdIndex - b.createdIndex)[0].filename;
-    }
-
-    if (initial) {
-      await loadActive(folder, initial);
-    } else {
-      activeFilename.set(null);
-      activeBody.set('');
-      lastSavedBody.set('');
-      lastKnownMtime.set(0);
-    }
-
-    phase = 'app';
-    await tick();
-    editorRef?.focus();
   }
 
   async function loadActive(folder: string, filename: string) {
@@ -341,36 +346,46 @@
   }
 
   async function handleSetupDone(detail: { folder: string }) {
-    storageFolder.set(detail.folder);
-    const m = await loadMeta(detail.folder);
-    meta.set(m);
-    await persistConfig(detail.folder, null);
-    activeFilename.set(null);
-    activeBody.set('');
-    lastSavedBody.set('');
-    lastKnownMtime.set(0);
-    phase = 'app';
-  }
-
-  async function handleSettingsFolderChange(detail: { folder: string }) {
-    const folder = detail.folder;
-    await flushPendingSave();
-    const exists = await pathExists(folder);
-    if (!exists) await createDir(folder);
-    storageFolder.set(folder);
-    const m = await loadMeta(folder);
-    meta.set(m);
-    const sorted = [...m.notes].sort((a, b) => a.createdIndex - b.createdIndex);
-    if (sorted.length > 0) {
-      await loadActive(folder, sorted[0].filename);
-    } else {
+    try {
+      storageFolder.set(detail.folder);
+      const m = await loadMeta(detail.folder);
+      meta.set(m);
+      await persistConfig(detail.folder, null);
       activeFilename.set(null);
       activeBody.set('');
       lastSavedBody.set('');
       lastKnownMtime.set(0);
-      await persistConfig(folder, null);
+      phase = 'app';
+    } catch (e) {
+      console.error('handleSetupDone failed:', e);
+      phase = 'setup';
     }
-    settingsOpen.set(false);
+  }
+
+  async function handleSettingsFolderChange(detail: { folder: string }) {
+    const folder = detail.folder;
+    try {
+      await flushPendingSave();
+      const exists = await pathExists(folder);
+      if (!exists) await createDir(folder);
+      storageFolder.set(folder);
+      const m = await loadMeta(folder);
+      meta.set(m);
+      const sorted = [...m.notes].sort((a, b) => a.createdIndex - b.createdIndex);
+      if (sorted.length > 0) {
+        await loadActive(folder, sorted[0].filename);
+      } else {
+        activeFilename.set(null);
+        activeBody.set('');
+        lastSavedBody.set('');
+        lastKnownMtime.set(0);
+        await persistConfig(folder, null);
+      }
+      settingsOpen.set(false);
+    } catch (e) {
+      console.error('handleSettingsFolderChange failed:', e);
+      banner.set({ kind: 'error', message: `Could not switch folder: ${String(e)}` });
+    }
   }
 
   async function handleResetColors() {

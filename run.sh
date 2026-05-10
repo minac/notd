@@ -17,8 +17,9 @@ Usage: ./run.sh <command>
 Commands:
   dev      Start the Tauri dev server (hot reload).
   build    Production build, then copy ${APP_NAME}.app into ${APPLICATIONS}.
+  cli      Build and install notd-cli to \$CLI_PREFIX/bin (default ~/.local).
   doctor   Run svelte-check and cargo check.
-  clean    Remove build artifacts (build/, .svelte-kit/, src-tauri/target).
+  clean    Remove build artifacts (build/, .svelte-kit/, src-tauri/target, cli/target).
   help     Show this message.
 EOF
 }
@@ -56,11 +57,25 @@ cmd_build() {
 cmd_doctor() {
   npx svelte-check --tsconfig ./tsconfig.json
   ( cd src-tauri && cargo check )
+  ( cd cli && cargo check )
+}
+
+cmd_cli() {
+  local prefix="${CLI_PREFIX:-$HOME/.local}"
+  cargo install --path cli --root "$prefix" --force --quiet
+  local bin="$prefix/bin/notd-cli"
+  echo
+  echo "Installed ${bin}"
+  case ":$PATH:" in
+    *":$prefix/bin:"*) ;;
+    *) echo "note: $prefix/bin is not on \$PATH — add it to your shell rc to use \`notd-cli\` directly." ;;
+  esac
 }
 
 cmd_clean() {
   rm -rf build .svelte-kit
   ( cd src-tauri && cargo clean )
+  ( cd cli && cargo clean )
   echo "Cleaned."
 }
 
@@ -70,6 +85,7 @@ main() {
   case "$sub" in
     dev)    cmd_dev "$@" ;;
     build)  cmd_build "$@" ;;
+    cli)    cmd_cli "$@" ;;
     doctor) cmd_doctor "$@" ;;
     clean)  cmd_clean "$@" ;;
     help|-h|--help) usage ;;

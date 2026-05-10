@@ -6,7 +6,7 @@ description = "Command-line companion for the notd macOS app"
 publish = false
 
 [[bin]]
-name = "notd"
+name = "notd-cli"
 path = "src/main.rs"
 
 [dependencies]

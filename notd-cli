@@ -6,7 +6,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BIN="$ROOT/cli/target/release/notd"
+BIN="$ROOT/cli/target/release/notd-cli"
 SRC="$ROOT/cli/src/main.rs"
 TOML="$ROOT/cli/Cargo.toml"
 

@@ -24,11 +24,13 @@ struct AppConfig {
 
 fn usage() {
     let text = concat!(
-        "notd — personal drafts app for unformed ideas and todos.\n",
-        "Quick capture lands here first; promote the keepers to Obsidian (notes)\n",
-        "or Todoist (tasks). Anything left in notd is provisional by design.\n",
+        "notd-cli — companion CLI for the notd macOS drafts app.\n",
         "\n",
-        "Usage: notd <command> [args]\n",
+        "notd is where unformed ideas and todos land first. Capture quickly,\n",
+        "then promote the keepers to Obsidian (notes) or Todoist (tasks).\n",
+        "Anything left in notd is provisional by design.\n",
+        "\n",
+        "Usage: notd-cli <command> [args]\n",
         "\n",
         "Commands:\n",
         "  ls                  List notes, oldest → newest (matches app dot order).\n",

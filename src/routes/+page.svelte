@@ -9,8 +9,7 @@
     activeBody,
     lastSavedBody,
     lastKnownMtime,
-    settingsOpen,
-    sortedNotes
+    settingsOpen
   } from '$lib/stores';
   import {
     pathExists,
@@ -391,10 +390,15 @@
   async function handleResetColors() {
     const folder = $storageFolder;
     if (!folder) return;
-    await deleteMetaFile(folder);
-    const m = await rebuildMeta(folder);
-    meta.set(m);
-    settingsOpen.set(false);
+    try {
+      await deleteMetaFile(folder);
+      const m = await rebuildMeta(folder);
+      meta.set(m);
+      settingsOpen.set(false);
+    } catch (e) {
+      console.error('handleResetColors failed:', e);
+      banner.set({ kind: 'error', message: `Could not reset colors: ${String(e)}` });
+    }
   }
 
   function openSettings() {

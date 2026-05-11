@@ -9,14 +9,24 @@ on:
 jobs:
   doctor:
     name: doctor
-    # macos-latest: the app is macOS-only (tray icon, AppKit lifecycle,
-    # ~/Library/Application Support paths). A Linux runner would need
-    # apt packages for webkit2gtk/gtk and would not exercise the real target.
-    runs-on: macos-latest
+    # ubuntu-latest with apt-installed Tauri deps. macOS runners are 10×
+    # the cost; doctor only runs svelte-check + cargo check, neither of
+    # which exercises macOS-specific behavior — that's verified manually.
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install Tauri system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
 
       - name: Setup Node
         uses: actions/setup-node@v4

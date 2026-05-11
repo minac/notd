@@ -11,17 +11,7 @@
     lastKnownMtime,
     settingsOpen
   } from '$lib/stores';
-  import {
-    pathExists,
-    readAppConfig,
-    writeAppConfig,
-    readNote,
-    writeNote,
-    deleteNote,
-    getMtime,
-    createDir,
-    setStorageFolder
-  } from '$lib/fs';
+  import { readNote, writeNote, deleteNote, getMtime } from '$lib/fs';
   import {
     loadMeta,
     addNoteToMeta,
@@ -32,6 +22,19 @@
   } from '$lib/meta';
   import { generateFilename, resolveCollision } from '$lib/filename';
   import { attachShortcuts } from '$lib/shortcuts';
+  import {
+    bootstrap,
+    loadActive,
+    persistConfig,
+    handleSetupDone as doSetupDone,
+    handleSettingsFolderChange as doSettingsFolderChange
+  } from '$lib/bootstrap';
+  import {
+    scheduleSave,
+    flushPendingSave,
+    configureSaveManager,
+    disposeSaveManager
+  } from '$lib/saveManager';
 
   import DotRow from '../components/DotRow.svelte';
   import AppBar from '../components/AppBar.svelte';
@@ -47,135 +50,11 @@
   let phase: Phase = $state('loading');
   let editorRef: Editor | undefined = $state();
 
-  let saveTimer: ReturnType<typeof setTimeout> | null = null;
-  const SAVE_DEBOUNCE_MS = 500;
-
-  // Track which filename a queued save is for, so we don't save the wrong body.
-  let savingFilename: string | null = null;
-
   let detachShortcuts: (() => void) | undefined;
   let unlistenFocus: (() => void) | undefined;
   let unlistenFsChanged: (() => void) | undefined;
 
-  async function persistConfig(folder: string, active: string | null) {
-    await writeAppConfig(JSON.stringify({ storageFolder: folder, activeFilename: active }));
-  }
-
-  async function loadConfig(): Promise<{ storageFolder?: string; activeFilename?: string } | null> {
-    const raw = await readAppConfig();
-    if (!raw) return null;
-    try {
-      const parsed = JSON.parse(raw);
-      if (typeof parsed === 'object' && parsed !== null) return parsed;
-    } catch {}
-    return null;
-  }
-
-  async function bootstrap() {
-    try {
-      const cfg = await loadConfig();
-      const folder = cfg?.storageFolder;
-      if (!folder) {
-        phase = 'setup';
-        return;
-      }
-      const exists = await pathExists(folder);
-      if (!exists) {
-        try {
-          await createDir(folder);
-        } catch {
-          phase = 'setup';
-          return;
-        }
-      }
-      // Tell Rust the canonical folder before any storage call. From here
-      // on, fs/meta wrappers don't take a folder — they read AppState.
-      await setStorageFolder(folder);
-      storageFolder.set(folder);
-
-      const m = await loadMeta();
-      meta.set(m);
-
-      let initial: string | null = null;
-      if (cfg?.activeFilename && m.notes.some((n) => n.filename === cfg.activeFilename)) {
-        initial = cfg.activeFilename;
-      } else if (m.notes.length > 0) {
-        initial = [...m.notes].sort((a, b) => a.createdIndex - b.createdIndex)[0].filename;
-      }
-
-      if (initial) {
-        await loadActive(initial);
-      } else {
-        activeFilename.set(null);
-        activeBody.set('');
-        lastSavedBody.set('');
-        lastKnownMtime.set(0);
-      }
-
-      phase = 'app';
-      await tick();
-      editorRef?.focus();
-    } catch (e) {
-      console.error('bootstrap failed:', e);
-      phase = 'setup';
-    }
-  }
-
-  async function loadActive(filename: string) {
-    const folder = $storageFolder;
-    if (!folder) return;
-    const body = await readNote(filename);
-    const mtime = await getMtime(filename).catch(() => Date.now());
-    activeFilename.set(filename);
-    activeBody.set(body);
-    lastSavedBody.set(body);
-    lastKnownMtime.set(mtime);
-    await persistConfig(folder, filename);
-  }
-
-  async function persistOrDelete(filename: string, value: string) {
-    const folder = $storageFolder;
-    if (!folder) return;
-    // Transition from non-empty on disk to empty body → remove the note.
-    if (value === '' && $lastSavedBody !== '') {
-      await handleDelete(filename);
-      return;
-    }
-    try {
-      await writeNote(filename, value);
-      lastSavedBody.set(value);
-      lastKnownMtime.set(await getMtime(filename).catch(() => Date.now()));
-      if ($banner?.kind === 'error') banner.set(null);
-    } catch (e) {
-      banner.set({ kind: 'error', message: `Could not save: ${String(e)}`, filename });
-    }
-  }
-
-  async function flushPendingSave() {
-    if (saveTimer === null || !savingFilename) return;
-    clearTimeout(saveTimer);
-    saveTimer = null;
-    const filename = savingFilename;
-    const value = $activeBody;
-    savingFilename = null;
-    await persistOrDelete(filename, value);
-  }
-
-  function scheduleSave() {
-    const folder = $storageFolder;
-    const filename = $activeFilename;
-    if (!folder || !filename) return;
-    if (saveTimer !== null) clearTimeout(saveTimer);
-    savingFilename = filename;
-    saveTimer = setTimeout(async () => {
-      saveTimer = null;
-      const value = $activeBody;
-      const targetFilename = savingFilename;
-      savingFilename = null;
-      if (!targetFilename) return;
-      await persistOrDelete(targetFilename, value);
-    }, SAVE_DEBOUNCE_MS);
-  }
+  configureSaveManager({ onDeleteRequest: handleDelete });
 
   function handleClear() {
     if (!$activeFilename) return;
@@ -350,55 +229,13 @@
     }
   }
 
-  async function handleSetupDone(detail: { folder: string }) {
-    try {
-      // Setup.svelte already called setStorageFolder before writing the
-      // initial meta. Re-call here defensively — it's idempotent and
-      // makes the bootstrap and setup paths look the same.
-      await setStorageFolder(detail.folder);
-      storageFolder.set(detail.folder);
-      const m = await loadMeta();
-      meta.set(m);
-      await persistConfig(detail.folder, null);
-      activeFilename.set(null);
-      activeBody.set('');
-      lastSavedBody.set('');
-      lastKnownMtime.set(0);
-      phase = 'app';
-    } catch (e) {
-      console.error('handleSetupDone failed:', e);
-      phase = 'setup';
-    }
+  async function onSetupDone(detail: { folder: string }) {
+    const result = await doSetupDone(detail.folder);
+    phase = result.phase;
   }
 
-  async function handleSettingsFolderChange(detail: { folder: string }) {
-    const folder = detail.folder;
-    try {
-      await flushPendingSave();
-      const exists = await pathExists(folder);
-      if (!exists) await createDir(folder);
-      // Swap Rust's canonical folder before any storage call. Until this
-      // returns, loadMeta/loadActive would still operate on the previous
-      // folder.
-      await setStorageFolder(folder);
-      storageFolder.set(folder);
-      const m = await loadMeta();
-      meta.set(m);
-      const sorted = [...m.notes].sort((a, b) => a.createdIndex - b.createdIndex);
-      if (sorted.length > 0) {
-        await loadActive(sorted[0].filename);
-      } else {
-        activeFilename.set(null);
-        activeBody.set('');
-        lastSavedBody.set('');
-        lastKnownMtime.set(0);
-        await persistConfig(folder, null);
-      }
-      settingsOpen.set(false);
-    } catch (e) {
-      console.error('handleSettingsFolderChange failed:', e);
-      banner.set({ kind: 'error', message: `Could not switch folder: ${String(e)}` });
-    }
+  async function onSettingsFolderChange(detail: { folder: string }) {
+    await doSettingsFolderChange(detail.folder);
   }
 
   async function handleResetColors() {
@@ -420,7 +257,14 @@
   }
 
   onMount(() => {
-    bootstrap();
+    (async () => {
+      const result = await bootstrap();
+      phase = result.phase;
+      if (result.phase === 'app') {
+        await tick();
+        editorRef?.focus();
+      }
+    })();
 
     detachShortcuts = attachShortcuts({
       newNote: createNote,
@@ -471,7 +315,7 @@
     if (detachShortcuts) detachShortcuts();
     if (unlistenFocus) unlistenFocus();
     if (unlistenFsChanged) unlistenFsChanged();
-    if (saveTimer !== null) clearTimeout(saveTimer);
+    disposeSaveManager();
   });
 
   // When mode flips back to edit, focus the textarea on next tick.
@@ -485,7 +329,7 @@
 {#if phase === 'loading'}
   <div class="loading"></div>
 {:else if phase === 'setup'}
-  <Setup on:done={(e) => handleSetupDone(e.detail)} />
+  <Setup on:done={(e) => onSetupDone(e.detail)} />
 {:else}
   <div class="shell">
     <DotRow
@@ -518,7 +362,7 @@
 
   {#if $settingsOpen}
     <Settings
-      on:folderChange={(e) => handleSettingsFolderChange(e.detail)}
+      on:folderChange={(e) => onSettingsFolderChange(e.detail)}
       on:resetColors={handleResetColors}
     />
   {/if}

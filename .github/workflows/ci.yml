@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  doctor:
+    name: doctor
+    # macos-latest: the app is macOS-only (tray icon, AppKit lifecycle,
+    # ~/Library/Application Support paths). A Linux runner would need
+    # apt packages for webkit2gtk/gtk and would not exercise the real target.
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri
+            cli
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Run doctor
+        run: ./run.sh doctor

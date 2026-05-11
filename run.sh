@@ -56,6 +56,7 @@ cmd_build() {
 }
 
 cmd_doctor() {
+  npx svelte-kit sync
   npx svelte-check --tsconfig ./tsconfig.json
   ( cd src-tauri && cargo check )
   ( cd cli && cargo check )
